@@ -1,0 +1,733 @@
+---
+title: "Projet séries temporelles"
+author: "Ousseynou Sall et Timothée De Decker"
+output: 
+  rmdformats::readthedown:
+      code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=T, warning=F ,message=F)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(forecast)
+library(fpp2)
+library(ggpubr)
+library(kableExtra)
+library(tseries)
+```
+
+# Introduction
+
+## Présentation du jeu de données
+
+L'ensemble de données que nous utilisons est extrait du site de l'OPEP et comporte la production de pétrole par année, les réserves mondiales de pétrole, la demande en pétrole,le prix du brut ou encore la capacité de raffinage. 
+Nous nous concentrerons ici sur la production mondiale de pétrole entre 1960 et 2021.
+
+```{r}
+oil_gaz=read_csv2("C:/Users/timot/Documents/Data/TimeSeries/oil-production.csv")
+oil_gaz <- oil_gaz %>% pivot_longer(everything(), names_to='Year', values_to='Demande')
+oil_gaz$Demande <- as.numeric(str_replace_all(oil_gaz$Demande, ' ', ''))
+```
+
+## Le cadre de l'analyse des séries temporelles
+
+- l’objectif principal de l’analyse d’une série temporelle est la prévision de ses futures réalisations en se basant sur ses valeurs passées
+
+- Une série temporelle Yt est communément décomposée en tendance, saisonnalité, bruit:
+
+$$Y_{t}=T_{t} + S_{t} + {\epsilon}_t$$
+
+la tendance Tt correspondant à une évolution à long terme de la série, par exemple:
+
+tendance linéaire: $T_{t}=a+bt$
+
+tendance quadratique: $T_{t}=a+bt+ct^2$
+
+tendance logarithmique: $T_{t}=log(t)$
+
+- la saisonnalité $S_{t}$ correspondant à un phénoméne périodique de période identifiée.
+
+- l’erreur ${\epsilon}_t$ qui est la partie aléatoire de la série
+
+```{r}
+
+serie.ts=ts(oil_gaz$Demande,start=1960,end=2021,frequency=1)
+#plot(serie.ts,col = "violetred2",ylab="Production mondiale de pétrole brut")
+
+```
+
+
+## Présentation graphique
+
+```{r}
+autoplot(serie.ts,col='violetred2', cex=0.75) +
+  ggtitle("Production mondiale de pétrole par années") +
+  ylab("Production de pétrole") +
+  xlab("annee")
+
+#library(ggplot2)
+#autoplot(serie.ts)+
+  #ggtitle("Production mondiale de pétrole brut")
+```
+
+On remarque que la série ne semble pas présenter de caractère cyclique ou saisonnier ; en revanche elle montre assez clairement une longue tendance à la hausse.
+
+## L'ACF et la PACF
+
+```{r}
+par(mfrow=c(1,2))
+acf(serie.ts,lag=100)
+pacf(serie.ts,lag=100)
+```
+
+# Modélisation par un processus _ARIMA(p,d,q)_
+
+## Modèlisation par processus ARIMA(p,d,q)
+
+Le modèle ARIMA est une généralisation, pour les séries non-stationnaires, du modèle ARMA qui est lui-même la composition des modèles AR (auto-régressif) et MA (Moyennes Glissante ou Moving Average).
+
+**Modèle AR**
+
+Ce modèle se base sur le caractère auto-régressif de la série. Il est donc applicable qu'aux séries auto-régressives. Une série (ou un processus) est auto-régressif d'ordre n lorsque sa valeur à un instant t dépend linéairement des n valeurs précédentes.
+
+Soit :
+
+$x_t=c + \epsilon_t + \sum_{i=1}^{n}p_ix_{t-i}$
+
+Où $\epsilon$ est un bruit blanc et c une constante. Appliquer le modèle AR revient donc à trouver les coefficients $p_i$ ainsi que la variance du bruit $\epsilon_t$ et la constante c.On peut trouver les $p_i$ par régression linéaire par exemple.
+
+Important : on appliquera donc le modèle auto-régressif que si on remarque une « corrélation » entre la série et une version décalée d'elle-même (auto-corrélation).
+
+**Model MA**
+
+Ce modèle considère que la série (ou la variable) peut s'écrire comme combinaison linéaire de valeur actuelle d'un processus stochastique et de ses n valeurs précédentes. On parle d'un MA d'ordre n. La série peut donc s'écrire de la façon suivante :
+
+$x_t=\mu + \sum_{i=1}^{n} \theta_i\epsilon_{t-i}$
+
+***Paramètres du modèle***
+
+Le modèle ARIMA a trois paramètres, chacun correspondant à chaque « composante » du modèle. Il s'écrit ARIMA(p, d, q) où p, d et q sont des entiers naturels et constituent les paramètres du modèle.
+
+p est le nombre de décalages qu'il faudra considérer pour le modèle auto-régressif.
+
+d est le nombre de fois qu'il faut différencier la série afin de la rendre stationnaire. d doit être égal à 0 dans le cas d'un processus déjà stationnaire.
+
+q est l'ordre du modèle MA.
+
+***To-do list* ARIMA(p,d,q)**
+
+
+-   1. Vérifier si la série est stationnaire:
+
+-   1-a si oui alors d=0 ;
+
+-   1-b si non il faut faire des différenciations jusqu'à ce que la série soit stationnaire, avec d le nombre de différenciations.
+
+-   2. Choix des ordres du modèle ARMA
+
+-   2-a AR(p)--> PACF se coupe au niveau de p ;
+
+-   2-b MA(q)--> ACF se coupe au niveau de q ;
+
+-   2-c Ajuster le modèle avec (p,q) trouvés ;
+
+-   3. Diagnostic des résidus: verifier s'il s'agit d'un bruit blanc
+
+
+## Estimation "à la main"
+
+On remarque que l'ACF associée à notre série décroît relativement lentement, ce qui confirme l'absence de stationnarité constatée sur la courbe la représentant.
+
+On procède donc à une première différenciation, c'est-à dire au calcul de $Y_t = X_t - X_{t-1}$, afin de rendre la série stationnaire.
+
+```{r}
+serie.ts %>% diff(lag=1) %>% ggtsdisplay()
+```
+Les graphiques ci-dessus semblent indiquer qu'une seule différenciation suffit à nous mettre en présence de stationnarité mais sont contredits par le test de Dickey-Fuller augmenté.
+
+Par conséquent, on différencie une seconde fois.
+
+```{r}
+serie.ts %>% diff() %>% diff() %>% ggtsdisplay()
+```
+
+On va donc chercher à modéliser la série par un processus $ARIMA(p,2,q)$, la valeur centrale correspondant au degré de différenciation intégré au processus.
+
+Par ailleurs, le corrélogramme et le corrélogramme partiel obtenus à partir de la série différenciée donnent une première indication quant à la valeur des paramètres $p$ et $q$ qui correspondent respectivement aux ordres des processus AR et MA. 
+
+Leur valeur se situant aux alentours des derniers pics non nuls des deux corrélogrammes, soit respectivement 2 pour p et 1 pour q, on va procéder à l'estimation de plusieurs ARIMA de paramètres proches avant de sélectionner celui doté du plus petit score d'Akaike.
+
+
+```{r}
+m021 = arima(serie.ts, order=c(0,2,1))
+m120 = arima(serie.ts, order=c(1,2,0))
+m121 = arima(serie.ts, order=c(1,2,1))
+m122 = arima(serie.ts, order=c(1,2,2))
+m221 = arima(serie.ts, order=c(2,2,1))
+m222 = arima(serie.ts, order=c(2,2,2))
+
+m021$aic
+m120$aic
+m121$aic
+m122$aic
+m221$aic
+m222$aic
+```
+```{r}
+m021$residuals %>% ggtsdisplay()
+```
+
+Le score le plus faible est obtenu pour un processus ARIMA(0,2,1).
+La p-value élevée du test de Ljung-Box et les graphiques ci-dessus montrent en outre que les résidus du modèle semblent s'approcher d'un bruit blanc.
+
+Le graphique ci-dessous montre un aperçu de la prédiction réalisée avec ce modèle.
+
+```{r}
+autoplot(forecast(m021))
+```
+
+## Version automatique
+
+```{r}
+ndiffs(serie.ts)
+```
+
+La fonction `ndiffs` nous fournit directement le nombre de différenciation nécessaire pour revenir à une série stationnaire.
+
+```{r}
+serie.ts %>% diff() %>% diff() %>% ggtsdisplay()
+```
+
+Graphiquement, la série doublement différenciée semble bel et bien stationnaire.
+
+On repère une nouvelle fois les derniers pics significativement différents de 0 dans chaque corrélogramme.
+On en déduit les valeurs maximales de p et q qui vont nous servir à paramétrer correctement la fonction `auto.arima`.
+On aura donc d=2 (le nombre de différenciations nécessaires), max.p=2 (rang du dernier pic non nul du PACF) et max.q=1 (rang du dernier pic non nul dans l'ACF).
+
+```{r}
+fit_auto <- auto.arima(serie.ts, d=2, max.p=2, max.q=1)
+fit_auto
+```
+
+On retrouve le même modèle optimal que précédemment, soit un ARIMA(0,2,1) et le même aperçu de la prédiction.
+
+```{r}
+autoplot(forecast(fit_auto))
+```
+
+# Méthodes de régression (estimation de la tendance)
+
+## Regression linéaire
+
+$y=\beta_{0} + \sum_{i=1}^{n}\beta_{j} x_{j} + \epsilon$
+
+```{r}
+time=time(serie.ts)
+#time=1:length(a10)
+#Linear model
+fit_lin <- lm(serie.ts~time)
+summary(fit_lin)
+```
+
+```{r}
+t=c(time(serie.ts))
+Y=c(serie.ts)
+plot(Y~t,type="l")
+lines(fit_lin$fitted.values~t,col=2)
+```
+
+
+
+## Régression log-linéaire
+
+```{r}
+##Log linear model
+#in ts.
+fit_log=tslm(serie.ts~time,lambda = 0)
+
+# #or tsibble
+# a102=as_tsibble(a10,key = origin)
+# fit_log <- a102%>%
+#   model(lm = TSLM(log(value) ~ index))
+ 
+summary(fit_log)
+```
+
+
+## Régression polynomiale
+
+$y_{t}= \sum_{i=1}^{n}\beta_{i} x_t^{i} + \epsilon_t$
+
+D'après le critère BIC, on sélectionnne le polynôme de degré 3.
+
+```{r}
+library(MASS)
+# t<- time(a10)
+#t=c(time(a10))
+ t=1:length(serie.ts)
+
+  fit_poly3 <- lm(serie.ts~poly(t,3,raw=TRUE))
+
+fit_poly6 <- lm(serie.ts~poly(t,6,raw=TRUE))
+
+#Selection du degré du polynôme.
+BIC1D=sapply(1:6,function(d)BIC(lm(serie.ts~poly(t,d,raw=TRUE))))
+dselect=which.min(BIC1D)
+d=dselect
+fit_polydselect=lm(serie.ts~poly(t,d,raw=TRUE))
+summary(fit_polydselect)
+```
+
+
+```{r}
+Y=c(serie.ts)
+plot(Y~t,type="l")
+lines(fit_polydselect$fitted.values~t,col=2)
+```
+
+
+## Additive model, GAM
+
+Dans une régression linéaire, la réponse y suit une distribution normale:
+
+$$y∼N(μ,\sigma^2)$$
+
+dont la moyenne dépend d’une combinaison linéaire des prédicteurs.
+
+$$μ=β_0+β_1x_1+β_2x_2+...$$
+
+Dans un modèle additif, y suit toujours une distribution normale, mais sa moyenne n’est pas contrainte à varier linéairement avec chaque prédicteur. L’effet de chaque prédicteur est plutôt représenté par une fonction non-linéaire $f(x_i)$
+
+$$μ=β_0+f(x_1)+f(x_2)+...$$
+
+Dans ce type de modèle, les $f(x_i)$ proviennent d’une classe de fonctions appelées splines de lissage (smoothing splines), que nous décrirons mathématiquement un peu plus loin.
+
+```{r}
+library(mgcv)
+# Build the model
+ 
+fit_gam <- gam(serie.ts ~ s(time))
+summary(fit_gam)
+```
+
+
+
+```{r}
+
+plot(Y~t,type="l")
+lines(fit_gam$fitted.values~t,col=2)
+```
+
+
+
+## Spline regression
+
+Une régression spline est une fonction polynomiale par morceaux définie sur un intervalle [a,b] subdivisée en sous intervalles $[t_{i−1},t_j]$ tels que $a=t_0<t_1<...<t_k=b$.
+
+On la note $S_p:[a,b]→R$ Sur chaque intervalle $[ti−1,ti]$ un polynôme
+$P_i:[t_{i−1},t_i]→\mathbf{R}$
+est défini :
+
+Donc pour chaque intervalle k de la régression on a :$S_p(t)=P_k(t)$ $t_{k−1}≤t≤t_k$
+
+```{r}
+t=c(time(serie.ts))
+
+
+#Soit  les noeuds.  
+t.break1 <- 1960
+t.break2 <- 2021
+
+#ou utiliser des un choix plus "automatique "
+#quantiles par exemple
+#knots <-seq(min(t),max(t),length=3)
+# knots <- quantile(t, p = c(0.25, 0.5, 0.75))
+# t.break1=knots[1]
+# t.break2=knots[3]
+
+
+tb1 <- pmax(0, t - t.break1)# Position des valeurs de t par rapport au t.break1
+tb2 <- pmax(0, t - t.break2)#idem pour t.break2
+#  test pour savoir si c'est  t - t.break1 =>0 ou non
+
+fit.pw <- lm(serie.ts ~ t + tb1 + tb2)
+#summary(fit.pw)
+
+fit_spline <- lm(serie.ts ~ t + I(t^2) + I(tb1^3) + I(tb2^3))
+summary(fit_spline)
+```
+
+
+```{r}
+Y=c(serie.ts)
+plot(Y~t,type="l")
+lines(fit_spline$fitted.values~t,col=3)
+```
+
+
+## Bspline regression
+
+Une régression Bspline est similaire à une régression spline composé de fonctions B-splines de degré n
+
+$$S(t)=\sum_{i=0}^{m−n−1}b_{i,n}(t)P_i$$ tϵ[0,1]
+
+avec les fonctions B-spline définit par récurrence :
+
+$$b_{j,0}(t) = \left\{
+    \begin{array}{ll}
+        1 & \mbox{si }\ t_j≤t≤t_{j+1} \\
+        0 & \mbox{sinon.}
+    \end{array}
+\right.$$
+
+$$bj,n(t)=\frac{t−t_j}{t_{j+n}−t_j} b_{j,n−1}(t)+\frac{t_{j+n+1}−t}{t_{j+n+1}−{t_{j+1}}}b_{j+1,n−1}(t)$$
+```{r}
+library(splines)
+knots <- quantile(t, p = c(0.25, 0.5, 0.75))
+
+ fit_bspline<- lm(serie.ts~bs(t, knots = knots,degree = 2))#df= degree-intercept
+summary(fit_bspline)
+```
+
+```{r}
+Y=c(serie.ts)
+plot(Y~t,type="l")
+lines(fit_bspline$fitted.values~t,col=3)
+```
+
+##  Local polynomial (LOESS)
+
+```{r}
+h=.1
+fit_loess <- loess(serie.ts~t,span = h,degree = 1)
+summary(fit_loess)
+```
+
+```{r}
+plot(Y~t,type="l")
+lines(fit_loess$fitted~t,col='coral4')
+```
+
+## Graphiques comparatifs
+
+
+```{r}
+Y=c(serie.ts)
+plot(Y~t,type="l",lwd=4)
+lines(fit_lin$fitted.values~t,col='yellow',lwd=2)
+lines(fit_bspline$fitted.values~t,col='red',lwd=2)
+lines(fit_gam$fitted.values~t,col='green',lwd=2)
+lines(fit_polydselect$fitted.values~t, col='orange',lwd=2)
+lines(fit_loess$fitted~t,col='coral4',lwd=2)
+legend('bottomright', legend=c("Série", "Linéaire", "Bspline", "GAM","Poly", "Loess"),
+       col=c('black', 'yellow','red','green','orange','coral4'), lty=1:2, cex=0.8)
+```
+
+
+## Sélection de modèle
+
+On dispose pour cela de deux critères :
+
+* AIC : mesure de la qualité d’ajustement de tout modèle statistique estimé
+ 
+$MSE=\frac {||y-{\hat y} ||^2} {n}$
+
+$AIC=ln(MSE) + \frac {2 d}{n}$
+
+* BIC : type de sélection de modèle parmi une classe de modèles paramétriques avec différents nombres de paramètres
+ 
+$BIC=ln(MSE) + \frac {ln(n) d}{n}$
+
+```{r}
+modeles <- c("Linéaire", "Poly", "Spline", "Bspline", "GAM")
+AIC <- c(AIC(fit_lin), AIC(fit_polydselect), AIC(fit_spline), AIC(fit_bspline), AIC(fit_gam))
+BIC <- c(BIC(fit_lin), BIC(fit_polydselect), BIC(fit_spline), BIC(fit_bspline), BIC(fit_gam))
+scores <- tibble(modeles, AIC, BIC)
+print(scores)
+```
+
+Le modèle GAM l'emporte sur les deux tableaux, c'est donc celui qu'on retient pour la suite.
+
+
+# SARIMA appliqué aux résidus du GAM
+
+```{r}
+gam.ts = ts(fit_gam$residuals)
+ndiffs(gam.ts)
+```
+```{r}
+gam.ts %>% ggtsdisplay()
+```
+```{r}
+arima_gam <- auto.arima(gam.ts, d=0, max.p=2, max.q=1)
+arima_gam
+```
+
+
+
+```{r}
+f_gam <- forecast(ts(fit_gam$fitted))
+residGAM <- forecast(arima_gam)
+GAMplusResid <- ts(f_gam$mean + residGAM$mean, start=2022)
+autoplot(serie.ts) +
+  autolayer(GAMplusResid, series="GAM+resid ARIMA") +
+  xlab("Année") + ylab("Production en milliers de barils")
+```
+
+
+
+# Techniques de lissage
+
+## Moyenne mobile
+
+
+```{r}
+ma4 <- ma(c(serie.ts), order=4, centre=FALSE)
+ma4
+```
+
+
+```{r}
+titre="MA d'ordre"
+par(mfrow=c(2,2))
+for (i in 3:6){ma1 <- ma(c(serie.ts), order=i, centre=FALSE)
+plot(serie.ts)
+lines(ma1~t,col=2)
+title(paste(titre,i))
+}
+```
+
+##  Lissage exponentiel Simple (LES), Holt et Holt-Winters
+
+```{r}
+fit.lisexpo=ses(serie.ts)#le parametre est optimisé 
+fit.holt=holt(serie.ts)
+#fit.HW=hw(serie.ts)
+#summary(fit.lisexpo);summary(fit.holt);summary(fit.HW)
+plot(serie.ts)
+lines(fitted(fit.lisexpo),col=2)
+lines(fitted(fit.holt),col=3)
+#lines(fitted(fit.HW),col=4)
+
+legend('topleft', legend=c("lissage exponentiel", "Holt"),
+       col=c(2), lty=1:2, cex=0.8)
+```
+
+# Réseau de Neurones
+
+Le modèle Neural AutoRegressive (NAR) est défini par:
+
+$Y_t=f_W(y_{t-1},..., y_{t-p}) + \epsilon_t$
+
+où
+
+–$Y_t \in \mathbf{R}$ , mais on peut généraliser au cas multidimensionnel,
+
+– $f_W$: représente une fonction implémentée par un perceptron multi-couches avec une seule unité de sortie,
+– $Y_{t-i}, i=1,..., p$ sont les retards de la série $Y_t$,
+
+– $\epsilon_t$ est un bruit i.i.d., d’espérance 0, de variance constante $\sigma^2$ 
+
+On considère dans la suite un NAR(p, K), soit un perceptron multi-couches avec une unité de sortie linéaire, p unités d’entrée linéaires et K couches cachées munies d’une fonction d’activation sigmoïde $\phi$ de type tangente hyperbolique (fonction impaire).
+
+Alors un modèle (NAR) est défini précisément par une équation du type :
+
+$Y_t=f_W(y_{t-1},..., y_{t-p}) + \epsilon_t= \alpha_0 + \sum_{j=1}^{k}\alpha_j \phi(\sum_{i=1}^{p}\beta_{ij}Y_{t-i}+\beta_{0j})+\epsilon_t$
+
+$B_{ij} \le i\le p, 1 \le j \le K$ est le paramètre correspondant au poids de la connexion entre l’unité d’entrée i et
+l’unité cachée j,
+
+$\alpha_j, 1\le j \le K$ correspond au poids de la connexion entre l’unité cachée j et l’unité de sortie,
+
+$\beta_{0j}, 1\le j \le K$ est la constante associée à l’unité cachée j et $\alpha_0$ est la constante correspondant à l’unité de sortie.
+
+
+```{r}
+l_rmse <- c()
+for (p in 1:10) {
+  f_NN <- function(x, p, h) {forecast(nnetar(x, p), h=h)}
+  cv <- serie.ts %>% tsCV(forecastfunction=f_NN, h=1)
+  rmse <- sqrt(mean(cv**2, na.rm=TRUE))
+  l_rmse <- c(l_rmse, rmse)
+}
+p = which.min(l_rmse)
+print(paste('p optimal après cross-validation :', which.min(l_rmse)))
+```
+
+
+```{r}
+fitNN <- nnetar(serie.ts, p, size=50)
+fitNN
+```
+
+
+```{r}
+fcast <- forecast(fitNN, PI=TRUE, bootstrap=TRUE)
+autoplot(fcast)
+```
+
+
+##### Diagnostic des résidus du modèle de réseau de neurones
+
+```{r}
+fitNN$residuals %>% ggtsdisplay()
+Box.test(fitNN$residuals )
+```
+
+# Sélection du meilleur modèle
+
+## Procédure train-test simple
+
+La procédure consiste à diviser la série en un ensemble d'apprentissage à partir duquel on réalise les prédictions et un ensemble de test qui va nous servir à calculer l'erreur de prédiction via un score d'exactitude (*accuracy*).
+
+Dans le cas présent, notre ensemble de test est constitué des 10 dernières valeurs de la série : on réalise donc une prédiction sur 10 ans avec le reste des données disponibles.
+
+```{r}
+train <- subset(serie.ts, end=length(serie.ts)-10)
+test <- subset(serie.ts, start=length(serie.ts)-9)
+trainARIMA <- forecast(arima(train, order=c(0,2,1)), h=10)
+t <- c(time(train))
+fit_gam_train <- gam(train ~ t)
+trainGAM <- forecast(ts(fit_gam_train$fitted, start=1960), h=10)
+trainNN <- forecast(nnetar(train, size=50), h=10)
+trainMM <- forecast(ma(train, order=i, centre=FALSE), h=10)
+
+autoplot(window(serie.ts, start=1960)) +
+  autolayer(trainARIMA, series="ARIMA(0,2,1)", PI=FALSE) +
+  autolayer(trainGAM, series="GAM", PI=FALSE) +
+  autolayer(trainNN, series="RNN(1,50)", PI=FALSE) +
+  autolayer(trainMM, series="Lissage MM(4)", PI=FALSE) +
+  xlab("Année") + ylab("Production en milliers de barils") +
+  ggtitle("Prédictions pour la production annuelle de pétrole") +
+  guides(colour=guide_legend(title="Modèle"))
+```
+
+La fonction `accuracy` calcule automatiquement un panel de scores d'exactitude en fonction des valeurs prédites et des valeurs réelles.
+
+Parmi ces scores, on retient la racine carrée de l'erreur quadratique moyenne (**RMSE**), l'erreur moyenne absolue (**MAE**), la moyenne du pourcentage d'erreur absolue (**MAPE**) et l'erreur moyenne absolue rééchelonnée (**MASE**)
+
+```{r}
+accARIMA <- accuracy(trainARIMA, test)["Test set", c('RMSE', 'MAE', 'MAPE', 'MASE')]
+accNN <- accuracy(trainNN, test)["Test set", c('RMSE', 'MAE', 'MAPE', 'MASE')]
+acc <- rbind(accARIMA, accNN)
+rownames(acc) <- c('ARIMA(0,2,1)', 'NNAR(1,50)')
+acc
+```
+
+Quel que soit la métrique retenue pour l'exactitude, le modèle ARIMA(0,2,1) semble offrir la meilleure qualité de prédiction.
+
+## Cross-validation
+
+On estime ici l'exactitude par cross-validation, c'est-à dire qu'on crée une multitude d'ensembles d'apprentissage et de test pour calculer un score moyen.
+
+Le premier couple d'ensembles est créé en sélectionnant les valeurs consécutives de la série entre $0$ et $t-1$ (sans que t ne soit trop petit) pour prédire une unique valeur à $t$ (l'ensemble de test est donc réduit à une valeur). 
+
+On crée ainsi plusieurs ensembles en incrémentant $t$ jusqu'à atteindre la fin de la série.
+
+![Schéma de découpage d'une série temporelle en vue d'une cross-validation]("C:/Users/timot/Documents/Data/TimeSeries/cv1-1.png")
+
+La fonction `tsCV` permet de calculer facilement la série des erreurs de prédictions obtenues au terme de la cross-validation. On utilise ensuite ces erreurs pour recalculer le RMSE.
+
+```{r}
+f_arima <- function(x, h) {forecast(arima(x, order=c(0,2,1)), h=h)}
+cvARIMA <- serie.ts %>% tsCV(forecastfunction=f_arima, h=1)
+rmseARIMA <- sqrt(mean(cvARIMA**2, na.rm=TRUE))
+
+#f_gam <- function(x, h) {forecast(arima(x, order=c(0,2,1)), h=h)}
+#cvARIMA <- serie.ts %>% tsCV(forecastfunction=f_arima, h=1)
+#rmseARIMA <- sqrt(mean(cvARIMA**2, na.rm=TRUE))
+
+f_NN <- function(x, h) {forecast(nnetar(x, size=50), h=h)}
+cvNN <- serie.ts %>% tsCV(forecastfunction=f_NN, h=1)
+rmseNN <- sqrt(mean(cvNN**2, na.rm=TRUE))
+
+accCV <- rbind(rmseARIMA, rmseNN)
+rownames(accCV) <- c('ARIMA(0,2,1)', 'NNAR(1,50)')
+accCV
+```
+
+On constate là encore que le modèle ARIMA propose une erreur de prédiction moyenne moins élevée : il s'agit donc à ce stage du meilleur modèle dont nous disposions.
+
+# Bonus
+
+```{r}
+prix <- read.csv(file="C:/Users/timot/Documents/Data/TimeSeries/price.txt", sep=';')
+prix <- prix %>% pivot_longer(everything(), names_to='Year', values_to='Prix')
+prix$Year <- as.numeric(str_replace_all(prix$Year, 'X', ''))
+prix
+```
+```{r}
+prix <- ts(prix$Prix, start=1960, frequency=1)
+autoplot(prix, cex=0.75) +
+  ggtitle("Evolution annuelle du prix du brut") +
+  ylab("Prix en $/baril") +
+  xlab("Année")
+```
+```{r}
+demande <- read.csv(file="C:/Users/timot/Documents/Data/TimeSeries/oil-demand.txt", sep=';')
+demande <- demande %>% pivot_longer(everything(), names_to='Year', values_to='Demande')
+demande$Demande <- as.numeric(str_replace_all(demande$Demande, ' ', ''))
+demande$Year <- as.numeric(str_replace_all(demande$Year, 'X', ''))
+demande
+demande <- ts(demande$Demande, start=1960, frequency=1)
+```
+```{r}
+autoplot(demande, cex=0.75) +
+  ggtitle("Evolution annuelle de la demande mondiale de pétrole brut") +
+  ylab("Demande en milliers de barils") +
+  xlab("Année")
+```
+
+
+```{r}
+fitNNreg <- nnetar(serie.ts, size=50, xreg=cbind(prix, demande), repeats=40)
+fitNNreg
+```
+```{r}
+fitNNreg$residuals %>% ggtsdisplay()
+Box.test(fitNN$residuals )
+```
+
+
+```{r}
+train <- subset(serie.ts, end=length(serie.ts)-10)
+test <- subset(serie.ts, start=length(serie.ts)-9)
+trainARIMA <- forecast(arima(train, order=c(0,2,1)), h=10)
+t <- c(time(train))
+fit_gam_train <- gam(train ~ t)
+trainGAM <- forecast(ts(fit_gam_train$fitted, start=1960), h=10)
+trainNN <- forecast(nnetar(train, size=50), h=10)
+trainMM <- forecast(ma(train, order=i, centre=FALSE), h=10)
+prixT <- subset(prix, end=length(prix)-10)
+prixFuturs <- subset(prix, start=length(prix)-9)
+demandeT <- subset(prix, end=length(prix)-10)
+demandeFuture <- subset(prix, start=length(prix)-9)
+trainNNreg <- forecast(nnetar(train, size=50, xreg=prixT, repeats=40), h=10, xreg=prixFuturs)
+trainNNreg2 <- forecast(nnetar(train, size=50, xreg=cbind(prixT, demandeT), repeats=40), h=10, xreg=cbind(prixFuturs, demandeFuture))
+
+autoplot(window(serie.ts, start=1960)) +
+  autolayer(trainARIMA, series="ARIMA(0,2,1)", PI=FALSE) +
+  autolayer(trainGAM, series="GAM", PI=FALSE) +
+  autolayer(trainNN, series="RNN(1,50)", PI=FALSE) +
+  autolayer(trainMM, series="Lissage MM(4)", PI=FALSE) +
+  autolayer(trainNNreg, series="RNN(2,50) avec xreg = prix", PI=FALSE) +
+  autolayer(trainNNreg2, series="RNN(3,50) avec xreg = (prix, demande)", PI=FALSE) +
+  xlab("Année") + ylab("Production en milliers de barils") +
+  ggtitle("Prédictions pour la production annuelle de pétrole") +
+  guides(colour=guide_legend(title="Modèle"))
+```
+```{r}
+accARIMA <- accuracy(trainARIMA, test)["Test set", c('RMSE', 'MAE', 'MAPE', 'MASE')]
+accNN <- accuracy(trainNN, test)["Test set", c('RMSE', 'MAE', 'MAPE', 'MASE')]
+accNNreg <- accuracy(trainNNreg, test)["Test set", c('RMSE', 'MAE', 'MAPE', 'MASE')]
+accNNreg2 <- accuracy(trainNNreg2, test)["Test set", c('RMSE', 'MAE', 'MAPE', 'MASE')]
+acc <- rbind(accARIMA, accNN, accNNreg, accNNreg2)
+rownames(acc) <- c('ARIMA(0,2,1)', 'NNAR(1,50)', 'NNAR(2,50) avec prix', 'NNAR(3,50) avec prix et demande')
+acc
+```
+
+

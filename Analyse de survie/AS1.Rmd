@@ -1,0 +1,574 @@
+---
+title: "Analyse De Survie : Turnover En Entreprise"
+author: "Khadija Benslaoui & Timothée De Decker"
+date: "2022-11-08"
+output: 
+  rmdformats::readthedown:
+      code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE)
+
+library(tidyverse)
+library(survival)
+library(survminer)
+library(gridExtra)
+library(MASS)
+library(fitdistrplus)
+library(flexsurv)
+data <- read.csv("C:/Users/timot/Documents/Data/Survie/turnover.csv", header=T)
+turno <- tibble(data)
+```
+
+
+# 1. Exploration des données
+
+Les données que nous utilisons ici ont été obtenues sur [Kaggle](https:// /datasets/davinwijaya/employee-turnover) et proviennent originellement du [blog d'Edward Bushkin](https://edwvb.blogspot.com/2017/10/employee-turnover-how-to-predict-individual-risks-of-quitting.html). 
+(Ce dernier apporte d'ailleurs un complément intéressant à notre travail dans la mesure où il expose une application du machine learning à l'analyse de survie en se basant sur ces mêmes données).
+
+Ce jeu de données contient 1129 obervations des variables suivantes :
+
+- _stag_ : le temps passé dans l'emploi avant démission ou fin du suivi ;
+
+- _event_ : vaut 1 si l'individu a quitté son emploi avant la fin de l'étude, 0 sinon (censure) ;
+
+- _gender_ : le sexe de l'employé ;
+
+- _age_ : l'âge de l'individu observé ;
+
+- _industry_ : le secteur d'activité (16 modalités) ;
+
+- _profession_ : le métier exercé (15 modalités) ;
+
+- _traffic_ : le canal de recrutement (8 modalités) ;
+
+- _head_gender_ : le sexe du manager ;
+
+- _coach_ : présence ou non d'un formateur durant la période d'essai;
+
+- _greywage_ : versement ou non par l'entreprise d'une rémunération cachée aux autorités fiscales en plus du salaire officiel ;
+
+- _way_ : le mode de transport utilisé pour se rendre au travail (3 modalités);
+
+- _extraversion_, _independ_, _selfcontrol_, _anxiety_, _novator_ : 5 variables quantitatives décrivant les caractéristiques psychologiques de l'individu obervé (notes sur 10).
+
+Dans la mesure où nous disposons de peu d'informations sur ce jeu de données, très riche par ailleurs, il est nécessaire de l'explorer plus en détail.
+
+## Résumé numérique et graphique des variables de durée et de censure
+
+La variable _stag_ correspond à la durée séparant l'entrée dans l'emploi de l'individu observé de sa démission, de sa sortie de l'étude ou de la fin de cette dernière. 
+
+On suppose que l'unité de temps retenue est la semaine (les données montrent en effet que certaines des durées les plus longues correspondent à des individus d'à peine 20 ans, ce qui disqualifie le mois comme unité possible) : les statistiques sommaires ci-dessous indiquent donc que pour environ 50% des individus l'observation n'a pas dépassé les 6 mois et que la plus longue durée obervée s'élève à trois ans et quelques mois. 
+
+```{r}
+Stag <- turno$stag
+summary(Stag)
+```
+
+L'histogramme suivant montre que la distribution empirique de la variable porte à gauche. Le boxplot associé semble suggérer l'existence d'outliers : après vérification des observations suspectes, nous décidons de les ignorer.
+
+```{r}
+bp_nc <- ggplot(turno, aes(y=stag)) + 
+         geom_boxplot(fill="skyblue", alpha=0.5)
+h_nc <- ggplot(turno, aes(x=age)) + 
+          geom_histogram(bins=50, fill="skyblue", alpha=0.5) + 
+          ggtitle("Durée d'observation") + xlab('Temps') + ylab('')
+grid.arrange(h_nc, bp_nc, ncol=2)
+```
+
+Les effectifs de la variable _event_ montrent quant à eux qu'environ la moitié des données sont censurées.
+
+```{r}
+event <- turno$event
+table(event)
+```
+
+## Visualisation des variables qualitatives
+
+```{r}
+bp1 <- ggplot(turno, aes(data$gender)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage")
+
+bp2 <- ggplot(turno, aes(data$industry)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage") +
+              theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+
+bp3 <- ggplot(turno, aes(data$profession)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage") +
+              theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+
+bp4 <- ggplot(turno, aes(data$traffic)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage") +
+              theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1))
+
+bp5 <- ggplot(turno, aes(data$way)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage")
+
+bp6 <- ggplot(turno, aes(data$head_gender)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage")
+
+bp7 <- ggplot(turno, aes(data$greywage)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage")
+
+bp8 <- ggplot(turno, aes(data$coach)) + 
+              geom_bar(aes(y = (..count..)/sum(..count..))) + 
+              scale_y_continuous(labels=scales::percent) +
+              ylab("pourcentage")
+
+grid.arrange(bp1, bp5, bp6, ncol=3)
+grid.arrange(bp2, bp3, bp4, ncol=3)
+grid.arrange(bp7, bp8, ncol=3)
+```
+
+On constate que pour la majorité de ces variables les classes sont très inéquitablement réparties : leur utilisation telles quelles risquerait donc d'invalider les résultats de notre étude.
+
+Au vu du nombre de variables, certaines disposant de nombreuses modalités, nous jugeons préférable de ne pas recourir à du _resampling_ pour ne pas vider notre échantillon et préférons exclure ces variables de l'étude pour nous concentrer sur celles qui suivent.
+
+## Visualisation des variables quantitatives
+
+```{r}
+h1 <- ggplot(turno, aes(x=age)) + 
+  geom_histogram(bins=50, fill="skyblue", alpha=0.8) + 
+  ggtitle("age") + xlab('score') + ylab('')
+h2 <- ggplot(turno, aes(x=extraversion)) + 
+  geom_histogram(bins=50, fill="orange", alpha=0.8) + 
+  ggtitle("extraversion") + xlab('score') + ylab('')
+h3 <- ggplot(turno, aes(x=independ)) + 
+  geom_histogram(bins=50, fill="green", alpha=0.8) + 
+  ggtitle("independ") + xlab('score') + ylab('')
+h4 <- ggplot(turno, aes(x=selfcontrol)) + 
+  geom_histogram(bins=50, fill="red", alpha=0.8) + 
+  ggtitle("selfcontrol") + xlab('score') + ylab('')
+h5 <- ggplot(turno, aes(x=anxiety)) + 
+  geom_histogram(bins=50, fill="blue", alpha=0.8) + 
+  ggtitle("anxiety") + xlab('score') + ylab('')
+h6 <- ggplot(turno, aes(x=novator)) + 
+  geom_histogram(bins=50, fill="pink", alpha=0.8) + 
+  ggtitle("novator") + xlab('score') + ylab('')
+
+grid.arrange(h1, h2, h3, h4, h5, h6, ncol=3, nrow=2)
+```
+
+Les 5 variables censées refléter les caractéristiques psychologiques de l'individu semblent suivre peu ou prou des distributions normales : pour chacune d'elles, les employés se répartissent symétriquement autour d'un score moyen.
+
+Pour l'analyse qui suit, __nous décidons de ne conserver que ces 6 variables (âge + traits de personnalité) du dataset original__ en prenant soin de les transformer en variables __qualitatives__.
+
+On recourt à la fonction _cut_number()_ pour découper chaque variable en trois classes de tailles égales. Dans le cas des variables psychologiques, on obtient ainsi :
+
+- une classe _medium_ regroupant les individus proches de la moyenne de l'échantillon ;
+
+- une classe _low_ pour les individus chez qui le trait étudié n'est pas très marqué ; 
+
+- une classe _high_ pour ceux chez qui il est plutôt exacerbé.
+
+```{r}
+turno$age <- cut_number(turno$age, 3)
+turno$extraversion <- cut_number(turno$extraversion, 3)
+turno$independ <- cut_number(turno$independ, 3)
+turno$selfcontrol <- cut_number(turno$selfcontrol, 3)
+turno$anxiety <- cut_number(turno$anxiety, 3)
+turno$novator <- cut_number(turno$novator, 3)
+turno <- turno[c('stag', 'event', 'age', 'extraversion', 'independ', 'selfcontrol', 'anxiety', 'novator')]
+```
+
+__Scénario proposé :__
+
+Afin de lutter contre les difficultés de recrutement de long-terme des entreprises du secteur, la Chambre de Commerce et d'Industrie de la région propose aux recruteurs une méthode d'évaluation psychologique des candidats qu'il reçoivent afin de déceler celles et ceux qui seraient le plus susceptibles de s'engager dans la durée au sein de leur organisation. 
+
+Au terme de la phase de test, nous avons été mandatés par la CGI pour analyser les premières données récoltées et identifier les traits de personnalité qui tendent à peser sur la probabilité pour un employé de démissionner au-delà d'un certain passé en emploi.
+
+# 2. Estimation non-paramétrique des fonctions S, H et h
+
+## Estimation de la fonction de survie S (Kaplan-Meyer)
+
+Une estimation de la fonction de survie _S_ à partir des observations s'obtient par la formule suivante : 
+
+$$S_{KM}(t_{i}) = S_{t_{i-1}}(1-\frac{d_i}{n_i})$$
+
+avec
+
+- $S_{t_i−1}$ = la probabilité que l'évènement d'intérêt ne se soit pas encore produit à $t_{i−1}$ ;
+
+- $n_i$ = le nombre d'observations pour lesquelles cet évènement ne s'est pas produit avant $t_i$ ;
+
+- $d_i$ = le nombre d'observations pour lesquelles cet évènement s'est produit à l'instant $t_i$, dont on soustrait éventuellement le nombre d'observations censurées ;
+
+- $t_0$ = 0, $S(0)$ = 1.
+
+
+
+### Calcul de l'estimateur KM sans censure
+
+```{r}
+nc_fit <- survfit(Surv(stag) ~ 1, data = turno)
+
+ggsurvplot(nc_fit, 
+           conf.int=T,
+           ggtheme = theme_bw(),
+           palette='deepskyblue',
+           conf.int.fill = 'skyblue',
+           surv.median.line = 'hv')
+```
+
+__Interprétation__ 
+
+En ignorant la censure, on constate que la probabilité qu'un employé reste en poste au-delà de 6 mois (25 semaines) est de 1/2. 
+
+On remarque plus généralement que la probabilité de maintien dans l'emploi décroît rapidement mais de moins en moins vite à mesure que le temps passe.
+
+### Calcul de l'estimateur KM avec censure
+
+```{r}
+fit <- survfit(Surv(stag, event) ~ 1, data = turno)
+
+ggsurvplot(fit, 
+           conf.int=T,
+           ggtheme = theme_bw(),
+           palette='deepskyblue',
+           conf.int.fill = 'skyblue',
+           surv.median.line = 'hv')
+```
+
+__Interprétation__
+
+La convexité de la fonction de survie empirique avec censure est moins marquée que dans le cas précédent : la décroissance est plus lente et régulière.
+
+On remarque donc que la probabilité de survie atteint les 50% à partir de 1 an au lieu de 6 mois précédemment.
+
+__On se contentera à partir de maintenant d'étudier nos données en tenant compte de la censure.__
+
+## Estimation de la fonction de risque cumulé H (Nelson-Aalen)
+
+La formule suivante fournit un estimateur asymptotiquement sans biais de la fonction de risque cumulé H :
+
+$$\hat{H}(t) = \sum_{t_{i} \leq t}\frac{d_i}{R_i}$$
+avec
+
+- $d_i$ = le nombre d'observations pour lesquelles l'évènement s'est produit dans $]t_{i-1}, t_i]$ ;
+
+- $R_i$ = le nombre d'observations pour lesquelles l'évènement aurait pu se produire dans $]t_{i-1}, t_i]$.
+
+```{r}
+H <- cumsum(fit$n.event/fit$n.risk)
+plot(x=fit$time, y=H, type='l', xlab='Mois écoulés', ylab='Risque cumulé', col='purple')
+
+# alternativement, on peut utiliser l'objet fit$cumhaz pour obtenir cet estimateur
+#plot(x=fit$time, y=fit$cumhaz, type='l', xlab='Mois écoulés', ylab='Risque cumulé', col='orangered2')
+```
+
+## Estimation de la fonction de risque instantanné h
+
+L'estimation non-paramétrique de la fonction de risque instantanné s'obtient en dérivant la fonction de risque cumulé calculée précédemment.
+
+```{r}
+h <- diff(fit$cumhaz) / diff(fit$time)
+plot(x=fit$time[-1], y=h, type='l', xlab='Mois écoulés', ylab='Risque instantanné', col='red')
+```
+
+# 3. Modèles paramétriques
+
+## Loi de Weibull
+
+**Fonction de survie** pour une Weibull de paramètres (a, $\lambda$) :
+
+$$S(t) = \exp^{-(\lambda t)^a}$$
+a étant un paramètre de forme et $\lambda$ un paramètre d'échelle.
+
+
+### Estimation explicite des paramètres de la loi via l'EMV
+
+
+**Log vraisemblance** pour une Weibull de paramètres (en présence de censure) :
+
+$$\mathcal{L}(o_1, ..., o_n, \theta) = K+\sum_{i=1}^n [\delta_i \log(a \lambda^a t_i^{a-1}) + log(\exp^{-(\lambda t_i)^a})]$$
+
+```{r}
+logL_W = function (par) {
+  - sum(turno$event * (log(par[1]) - par[1]*log(par[2]) + (par[1]-1)*log(turno$stag)) - (turno$stag/par[2])**par[1])
+}
+
+estim_W <- nlm(logL_W, c(0.1, 0.1))
+estim_W
+```
+
+### Estimation avec la fonction _fitdistcens_
+
+```{r}
+# Censure à droite ici
+df <- data.frame("left"=turno$stag,"right"= rep(NA,length(turno$stag)))
+df[which(turno$event==1), 'right'] <- turno[which(turno$event==1), 'stag']
+fit_W <- fitdistcens(df, 'weibull')
+summary(fit_W)
+```
+```{r}
+plot(fit_W)
+```
+
+### Estimation avec la fonction _flexsurvreg_
+
+```{r}
+fit_W2 <- flexsurvreg(Surv(stag, event) ~ 1, data=turno, dist="weibull")
+fit_W2
+```
+```{r}
+plot(fit_W2)
+```
+
+
+## Loi exponentielle
+
+```{r}
+fit_E <- fitdistcens(df, 'exp')
+summary(fit_E)
+```
+
+```{r}
+plot(fit_E)
+```
+
+## Loi gamma
+
+```{r}
+fit_G <- fitdistcens(df, 'gamma')
+summary(fit_G)
+```
+
+```{r}
+plot(fit_G)
+```
+
+## Loi log-normale
+
+```{r}
+fit_L <- fitdistcens(df, 'lnorm')
+summary(fit_L)
+```
+```{r}
+plot(fit_L)
+```
+
+## Comparaison des modèles
+
+```{r}
+Loi <- c("Expo", "Weibull", "Gamma", "Log-Normale")
+logLikelihood <- c(fit_E$loglik, fit_W$loglik, fit_G$loglik, fit_L$loglik)
+AIC <- c(fit_E$aic, fit_W$aic, fit_G$aic, fit_L$aic)
+BIC <- c(fit_E$bic, fit_W$bic, fit_G$bic, fit_L$bic)
+scores <- tibble(Loi, logLikelihood, AIC, BIC)
+print(scores)
+```
+
+
+# 4. Intégration des cofacteurs
+
+## Modèles non-paramétriques
+
+Le but ici est de recalculer des estimateurs de la fonction de survie conditionnellement aux variables qualitatives que nous avons retenues en début d'étude.
+
+On va donc estimer S pour chaque groupe constitué par les modalités de la variable considérée en tentant de voir si les fonctions obtenues sont significativement différentes, et ainsi déterminer sommairement quelles sont les modalités qui augmentent ou réduisent la probabilité de survie.
+
+### Calcul de l'estimateur KM avec le cofacteur _age_
+
+```{r}
+fit <- survfit(Surv(stag, event) ~ age, data = turno)
+
+ggsurvplot(fit,
+          pval = TRUE, conf.int = TRUE,
+          risk.table = TRUE,
+          risk.table.col = "strata",
+          linetype = "strata",
+          surv.median.line = "hv", 
+          ggtheme = theme_bw())
+```
+
+__Interprétation__
+
+Graphiquement, les trois classes que nous avons créées pour la variable _age_ semblent donner des fonctions de survie bien différentes.
+
+Cette impression est confirmée par la valeur p affichée sur le graphique et obtenue à partir du __log-rank test__ qui sert précisément à déterminer si les fonctions de survie de différents groupes sont significativement différentes. La p-value très faible nous invite à rejeter l'hypothèse nulle d'égalité des fonctions S.
+
+La différence entre les courbes est particulièrement marquée pour les plus de 34 ans qui semblent les plus enclins à démissionner comme le montre l'effondrement rapide du nombre d'individus encore à risque dans le tableau ci-dessous.
+Ainsi, la probabilité pour un employé de plus de 34 ans de rester au-delà d'un an semble avoisiner 1/4 contre 1/2 pour les catégories plus jeunes.
+
+
+### Calcul avec le cofacteur _extraversion_
+
+```{r}
+fit <- survfit(Surv(stag, event) ~ extraversion, data = turno)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE,
+          risk.table.col = "strata",
+          linetype = "strata",
+          surv.median.line = "hv", 
+          ggtheme = theme_bw())
+```
+
+### Avec le cofacteur _anxiety_
+
+```{r}
+fit <- survfit(Surv(stag, event) ~ anxiety, data = turno)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE,
+          risk.table.col = "strata",
+          linetype = "strata",
+          surv.median.line = "hv", 
+          ggtheme = theme_bw())
+```
+
+### Avec le cofacteur _novator_
+
+```{r}
+fit <- survfit(Surv(stag, event) ~ novator, data = turno)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE,
+          risk.table.col = "strata",
+          linetype = "strata",
+          surv.median.line = "hv", 
+          ggtheme = theme_bw())
+```
+
+### Avec le cofacteur _independ_
+
+```{r}
+fit <- survfit(Surv(stag, event) ~ independ, data = turno)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE,
+          risk.table.col = "strata",
+          linetype = "strata",
+          surv.median.line = "hv", 
+          ggtheme = theme_bw())
+```
+
+__Interprétation__
+
+La p-value du log-rank test est proche de 1, indiquant que la probabilité de survie d'un employé n'est pas significativement influencée par l'indépendance de son caractère.
+
+
+### Avec le cofacteur _selfcontrol_
+
+```{r}
+fit <- survfit(Surv(stag, event) ~ selfcontrol, data = turno)
+
+ggsurvplot(fit,
+          pval = TRUE,
+          risk.table = TRUE,
+          risk.table.col = "strata",
+          linetype = "strata",
+          surv.median.line = "hv", 
+          ggtheme = theme_bw())
+```
+
+__Cette première approche nous invite à retenir les variables _age_, _extraversion_ et _anxiety_ comme cofacteurs susceptibles d'influencer la probabilité de maintien dans l'emploi d'un salarié donné.__
+
+
+# 5. Modèle de Cox et sélection de variables
+
+## Sélection par _step AIC_ et _step BIC_
+
+Les méthodes suivantes ont pour objet de détecter les variables qui affectent la probabilité de survie. Elles consistent toutes deux à tester différentes combinaisons de variables appliquées au modèle de Cox en vue de minimiser un score qui mesure la qualité de la régression tout en limitant l'ajout de paramètres superflus. 
+
+### _Step AIC_
+
+```{r}
+cox <- coxph(Surv(stag, event) ~ . , data= turno)
+coxaic<-stepAIC(cox, direction='both', trace=FALSE)
+summary(coxaic)
+```
+
+__Cette méthode en procédant par minimisation de l'AIC nous invite à sélectionner le modèle intégrant les variables _age_, _extraversion_ et _anxiety_ comme cofacteurs pertinents.__
+__On retrouve donc nos conclusions établies précédemment avec les modèles non-paramétriques.__
+
+
+### _Step BIC_
+
+```{r}
+coxbic = stepAIC(cox, direction = "both", k = log(length(turno$stag)), trace= F)
+summary(coxbic)
+```
+
+__La méthode employant le BIC nous amène quant à elle à privilégier un modèle intégrant uniquement le cofacteur _age_.__
+
+
+## Application au modèle de Cox et interprétation
+
+On se sert ici des conclusions du _step AIC_ en ajustant le modèle de Cox sur les variables _age_, _extraversion_ et _anxiety_.
+
+```{r}
+cox2 <- coxph(Surv(stag, event) ~ age + extraversion + anxiety, data= turno)
+summary(cox2)
+```
+
+Les p-values associées aux modalités affichées nous indiquent que __l'influence des trois variables est significative à condition néanmoins de considérer les classes extrêmes__, celle correspondant au _medium_ étant finalement toujours très proche de celle correspondant au _low_ en termes d'influence sur la probabilité de démission.
+
+Les résultats ci-dessus nous fournissent en outre une idée du sens de cette influence. La colonne _coef_ nous donne la valeur de $\beta$ et la colonne _exp(coef)_ celle de $\exp(\beta)$, soit celle du __hazard ratio ($HR$)__ qui correspond au rapport du risque induit par la modalité par rapport à celle utilisée comme base.
+
+__En prenant la variable _age_, on constate ainsi que le risque de démission augmente significativement pour les salariés de plus 34 ans par rapport à ceux qui en ont moins de 27 puisque $HR > 1$.__
+
+__On relève de la même manière que le risque de départ augmente significativement avec l'extraversion et diminue significativement lorsque le salarié s'avère particulièrement anxieux.__
+
+## Diagnostic a posteriori du modèle
+
+### Hypothèse de hasard proportionnel
+
+Le modèle de Cox n'est valide que sous l'hypothèse de hasard proportionnel (HP) qui indique l'invariance dans le temps du rapport des risques.
+
+Celle-ci peut être éprouvée via le test de Schoenfeld dont elle constitue l'hypothèse nulle. Ce test est basé sur les résidus de Schoenfeld qui donne également lieu à des représentations graphiques permettant d'évaluer la validité de H0 : il faut pour cela qu'aucun graphique (il y en a un par variable) ne montre une tendance temporelle.
+
+```{r}
+schoen = cox.zph(cox2)
+
+plot(schoen)
+```
+
+On constate que chaque graphique affiche un semblant droite horizontale, à l'exception peut-être du premier qui n'affiche cependant ni croissance ni décroissance très marquée.
+
+Visuellement, nous sommes donc amenés à ne pas rejeter l'hypothèse nulle.
+
+```{r}
+schoen
+```
+
+Les p-values issues du test nous confortent dans ce sens. __On retient donc l'hypothèse HP.__
+
+### Hypothèse de log-linéarité
+
+On procède encore une fois par test graphique.
+
+__Résidus des martingales__
+
+```{r}
+ggcoxdiagnostics(cox2,type = "martingale")
+```
+__Résidus de la déviance__
+
+```{r}
+ggcoxdiagnostics(cox2, type = "deviance", ox.scale = "linear.predictions")
+```
+
+Sur les deux représentations suivantes, on constate que la courbe bleue ne présente pas de forme particulière : __on en déduit que la log-linéarité est respectée__.
+
+
+

@@ -1,4 +1,4 @@
-Ce dépôt contient un échantillon de projets réalisés dans le cadre de mes deux annnées de master en Statistiques et Traitement de données à l'Université de Clermont-Ferrand. 
+Ce dépôt contient un échantillon de projets réalisés dans le cadre de mes deux annnées de master en mathématiques appliquées, statistiques et traitement de données à l'Université de Clermont-Ferrand. 
 
 Le but ici n'est pas de proposer une liste exhaustive des travaux produits mais d'illustrer autant que possible les compétences et connaissances acquises au cours de ma formation universitaire avec quelques projets simples.
 

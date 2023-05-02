@@ -12,7 +12,8 @@ Quatre dossiers sont proposés en lecture :
 - [Machine Learning & Deep Learning](https://github.com/Tim-De-Decker/Etudes/tree/main/MachineL-DeepL) 
   - [Projet IA](https://github.com/Tim-De-Decker/Etudes/blob/main/MachineL-DeepL/Projet%20IA.ipynb) : comparaison de classificateurs linéaires et calculs "à la main" ;
   - [KMeans](https://github.com/Tim-De-Decker/Etudes/tree/main/MachineL-DeepL/KMeans) : réimplémentation de l'algorithme des k-moyennes via le package maison clust.py et test sur les données Iris avec ClustIris.ipynb ;
-  - [Santander](https://github.com/Tim-De-Decker/Etudes/blob/main/MachineL-DeepL/Santander.ipynb) : projet illustrant la mise en oeuvre d'une démarche de machine learning complète ;
+  - [Santander](https://github.com/Tim-De-Decker/Etudes/blob/main/MachineL-DeepL/Santander.ipynb) : projet illustrant la mise en oeuvre d'une démarche de machine learning complète (malgré des résultats peu concluants) ;
+  - [Série temporelle avec RNN](https://github.com/Tim-De-Decker/Etudes/blob/main/MachineL-DeepL/S%C3%A9rie%20temporelle%20avec%20RNN.ipynb) : projet d'application d'un réseau à couche récurrente à la prévision de la consommation d'électricité en France métropolitaine ; 
   - [NN-Regression](https://github.com/Tim-De-Decker/Etudes/blob/main/MachineL-DeepL/NN-Regression.ipynb) : exemple de régression multi-output avec un réseau de neurones multicouches simple ;
   - [NLP](https://github.com/Tim-De-Decker/Etudes/tree/main/MachineL-DeepL/NLP) : dossier contenant un unique projet d'[analyse de sentiments](https://github.com/Tim-De-Decker/Etudes/blob/main/MachineL-DeepL/NLP/AnalyseDeSentiments.ipynb) réalisé à partir d'un corpus de critiques de films avec deux modèles, le _gradient boosting_ et une variante de réseau de neurones récurrent (LSTM) ;
   - [Computer vision](https://github.com/Tim-De-Decker/Etudes/tree/main/MachineL-DeepL/Computer%20vision) : ce dossier contient deux projets impliquant le traitement d'images
